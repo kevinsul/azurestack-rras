@@ -1,0 +1,503 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "apiProfile": "2018-03-01-hybrid",
+  "parameters": {
+    "adminUsername": {
+      "type": "string",
+      "metadata": {
+        "description": "The name of the Administrator of the new VMs"
+      },
+      "defaultValue": "vmadmin"
+    },
+    "adminPassword": {
+      "type": "securestring",
+      "metadata": {
+        "description": "The password for the Administrator account of the new VMs. Default value is subscription id"
+      },
+      "defaultValue": "[concat('Subscription#',subscription().subscriptionId)]"
+    },
+    "windowsImageSKU": {
+      "type": "string",
+      "defaultValue": "2016-Datacenter",
+      "allowedValues": [
+        "2012-R2-Datacenter",
+        "2016-Datacenter-Server-Core",
+        "2016-Datacenter"
+      ],
+      "metadata": {
+        "description": "The Windows version for the VM. This will pick a fully patched image of this given Windows version. Allowed values: 2008-R2-SP1, 2012-Datacenter, 2012-R2-Datacenter, 2016-Datacenter."
+      }
+    }
+  },
+  "variables": {
+   
+    "storageAccountType": "Standard_LRS",
+    "storageName": "[concat('sa', uniquestring(resourceGroup().id))]",
+  
+    "vmName": "[tolower(concat('rras', resourceGroup().name))]",
+    "VMSize": "Standard_DS2_v2",
+    
+       
+    
+    "windowsImagePublisher": "MicrosoftWindowsServer",
+    "windowsImageOffer": "WindowsServer",
+    "windowsImageVersion": "latest",
+    "dataDiskSize": 2,
+    "assetLocation": "https://raw.githubusercontent.com/kevinsul/AzureStack-ARMTemplates/master/201-vm-windows-comprehensive-with-managed-disks",
+    
+    "VNet1Range": "10.1.0.0/16",
+    "VNet1GWSubnetRange": "10.1.254.0/24",
+    "VNet1InternalSubnetRange": "10.1.1.0/24",
+
+    "VNet2Range": "10.2.0.0/16",
+    "VNet2GWSubnetRange": "10.2.254.0/24",
+    "VNet2InternalSubnetRange": "10.2.1.0/24",
+
+    "GWSubnetName": "GWSubnet1",
+    "InternalSubnetName": "InternalSubnet1",
+           
+    "VNet1Name": "[tolower(concat('vnet1',resourceGroup().name))]",
+    "VNet2Name": "[tolower(concat('vnet2',resourceGroup().name))]",
+
+
+    "vnetID1": "[resourceId('Microsoft.Network/virtualNetworks', variables('VNet1Name'))]",
+    "vnetID2": "[resourceId('Microsoft.Network/virtualNetworks', variables('VNet2Name'))]",
+
+    
+    "GWSubnetRef1": "[concat(variables('vnetID1'),'/subnets/',variables('GWSubnetName'))]",
+    "InternalSubnetRef1": "[concat(variables('vnetID1'),'/subnets/',variables('InternalSubnetName'))]",
+
+    "GWSubnetRef2": "[concat(variables('vnetID2'),'/subnets/',variables('GWSubnetName'))]",
+    "InternalSubnetRef2": "[concat(variables('vnetID2'),'/subnets/',variables('InternalSubnetName'))]",    
+
+    "PIPAddressName1": "[tolower(concat('rraspip1',resourceGroup().name))]",
+    "PIPAddressName2": "[tolower(concat('rraspip2',resourceGroup().name))]",
+    
+    
+    
+    "extnsgName": "[tolower(concat('extnsg',resourceGroup().name))]",
+    "extnsgID": "[resourceId('Microsoft.Network/networkSecurityGroups',variables('extnsgName'))]",
+    
+    "NICPrefix1": "[tolower(concat('rrasnic1', resourceGroup().name))]",
+    "NICPrefix2": "[tolower(concat('rrasnic2', resourceGroup().name))]",
+
+    "vmContainerName": "vhds",
+    "WindowsFeatureName": "Web-Server",
+    "ModulesURL": "[concat(variables('assetLocation'),'/windowsFeature.zip')]",
+    "ConfigurationFunction": "windowsFeature.ps1\\EnalbeWindowsFeature",
+    "scriptFileName": "install-rras.ps1",
+    "scriptFile": "[concat(variables('assetLocation'),'/',variables('scriptFileName'))]"
+  },
+
+  "resources": [
+    {
+      "type": "Microsoft.Network/networkSecurityGroups",
+      "name": "[variables('extnsgName')]",
+      "location": "[resourceGroup().location]",
+      "properties": {
+        "securityRules": [
+          {
+            "name": "500UDP",
+            "properties": {
+              "protocol": "Udp",
+              "sourcePortRange": "*",
+              "destinationPortRange": "500",
+              "sourceAddressPrefix": "*",
+              "destinationAddressPrefix": "*",
+              "access": "Allow",
+              "priority": 110,
+              "direction": "Inbound"
+            }
+          },
+          {
+            "name": "4500UDP",
+            "properties": {
+              "protocol": "Udp",
+              "sourcePortRange": "*",
+              "destinationPortRange": "4500",
+              "sourceAddressPrefix": "*",
+              "destinationAddressPrefix": "*",
+              "access": "Allow",
+              "priority": 120,
+              "direction": "Inbound"
+            }
+          },
+          {
+            "name": "RDP",
+            "properties": {
+              "protocol": "Tcp",
+              "sourcePortRange": "*",
+              "destinationPortRange": "3389",
+              "sourceAddressPrefix": "*",
+              "destinationAddressPrefix": "*",
+              "access": "Allow",
+              "priority": 130,
+              "direction": "Inbound"
+            }
+          }
+        ]
+      }
+    },
+
+    {
+        "type": "Microsoft.Storage/storageAccounts",
+        "name": "[variables('storageName')]",
+        "location": "[resourceGroup().location]",
+        "sku": {
+          "name": "[variables('storageAccountType')]"
+        },
+        "kind": "Storage"    
+      },
+
+
+    {
+      "type": "Microsoft.Network/virtualNetworks",
+      "name": "[variables('VNet1Name')]",
+      "location": "[resourceGroup().location]",
+      "properties": {
+        "addressSpace": {
+          "addressPrefixes": [
+            "[variables('VNet1Range')]"
+          ]
+        },
+        "subnets": [
+          {
+            "name": "[variables('GWSubnetName')]",
+            "properties": {
+              "addressPrefix": "[variables('VNet1GWSubnetRange')]",
+              "networkSecurityGroup": {
+                "id": "[variables('extnsgID')]"
+              }
+            }
+          },
+          {
+            "name": "[variables('InternalSubnetName')]",
+            "properties": {
+              "addressPrefix": "[variables('VNet1InternalSubnetRange')]"
+              }
+            }
+        ]
+      },
+      "dependsOn": [
+        "[variables('extnsgID')]"
+      ]
+    },
+    
+    {
+        "type": "Microsoft.Network/virtualNetworks",
+        "name": "[variables('VNet2Name')]",
+        "location": "[resourceGroup().location]",
+        "properties": {
+          "addressSpace": {
+            "addressPrefixes": [
+              "[variables('VNet2Range')]"
+            ]
+          },
+          "subnets": [
+            {
+              "name": "[variables('GWSubnetName')]",
+              "properties": {
+                "addressPrefix": "[variables('VNet2GWSubnetRange')]",
+                "networkSecurityGroup": {
+                  "id": "[variables('extnsgID')]"
+                }
+              }
+            },
+            {
+              "name": "[variables('InternalSubnetName')]",
+              "properties": {
+                "addressPrefix": "[variables('VNet2InternalSubnetRange')]"
+                }
+              }
+          ]
+        },
+        "dependsOn": [
+          "[variables('extnsgID')]"
+        ]
+      },
+
+
+    {
+      "type": "Microsoft.Network/publicIPAddresses",
+      "name": "[variables('PIPAddressName1')]",
+      "location": "[resourceGroup().location]",
+      "properties": {
+        "publicIPAllocationMethod": "Static"       
+      },
+      "dependsOn": [
+        "[variables('vnetID1')]"
+      ]
+    },
+
+    {
+        "type": "Microsoft.Network/publicIPAddresses",
+        "name": "[variables('PIPAddressName2')]",
+        "location": "[resourceGroup().location]",
+        "properties": {
+          "publicIPAllocationMethod": "Static"          
+        },
+        "dependsOn": [
+          "[variables('vnetID2')]"
+        ]
+      },
+
+
+
+    {
+      "type": "Microsoft.Network/networkInterfaces",
+      "name": "[concat(variables('NICPrefix1'), 'external')]",
+      "location": "[resourceGroup().location]",
+      "properties": {
+        "enableIPForwarding":true,  
+        "ipConfigurations": [
+          {
+            "name": "ipconfig1",
+            "properties": {
+              "privateIPAllocationMethod": "Static",
+              "privateIPAddress": "10.1.254.4",
+              "publicIPAddress": {
+                "id": "[resourceId('Microsoft.Network/publicIPAddresses',variables('PIPAddressName1'))]"
+              },
+              "subnet": {
+                "id": "[variables('GWSubnetRef1')]"
+              }
+            
+           
+            }
+          }
+        ]
+      },
+      "dependsOn": [
+        "[variables('vnetID1')]",
+        "[resourceId('Microsoft.Network/publicIPAddresses',variables('PIPAddressName1'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Network/networkInterfaces",
+      "name": "[concat(variables('NICPrefix1'), 'internal')]",
+      "location": "[resourceGroup().location]",
+      "properties": {
+        "enableIPForwarding":true,
+        "ipConfigurations": [
+          {
+            "name": "ipconfig1",
+            "properties": {
+              "privateIPAllocationMethod": "Static",
+              "privateIPAddress": "10.1.1.4",
+              "subnet": {
+                "id": "[variables('InternalSubnetRef1')]"
+              }
+            }
+          }
+        ]
+      },
+      "dependsOn": [
+        "[variables('vnetID1')]"
+      ]
+    },
+
+    {
+        "type": "Microsoft.Network/networkInterfaces",
+        "name": "[concat(variables('NICPrefix2'), 'external')]",
+        "location": "[resourceGroup().location]",
+        "properties": {
+            "enableIPForwarding":true,
+            "ipConfigurations": [
+            {
+              "name": "ipconfig1",
+              "properties": {
+                "privateIPAllocationMethod": "Static",
+                "privateIPAddress": "10.2.254.4",
+                "publicIPAddress": {
+                "id": "[resourceId('Microsoft.Network/publicIPAddresses',variables('PIPAddressName2'))]"
+              },
+                "subnet": {
+                  "id": "[variables('GWSubnetRef2')]"
+                }
+              }
+            }
+          ]
+        },
+        "dependsOn": [
+          "[variables('vnetID2')]",
+          "[resourceId('Microsoft.Network/publicIPAddresses',variables('PIPAddressName2'))]"
+        ]
+      },
+      {
+        "type": "Microsoft.Network/networkInterfaces",
+        "name": "[concat(variables('NICPrefix2'), 'internal')]",
+        "location": "[resourceGroup().location]",
+        "properties": {
+            "enableIPForwarding":true,
+            "ipConfigurations": [
+            {
+              "name": "ipconfig1",
+              "properties": {
+                "privateIPAllocationMethod": "Static",
+                "privateIPAddress": "10.2.1.4",
+                "subnet": {
+                  "id": "[variables('InternalSubnetRef2')]"
+                }
+              }
+            }
+          ]
+        },
+        "dependsOn": [
+          "[variables('vnetID2')]"
+        ]
+      },
+
+
+
+      {
+        "type": "Microsoft.Compute/virtualMachines",
+        "name": "[concat(variables('vmName'), '1')]",
+        "location": "[resourceGroup().location]",
+        "dependsOn": [
+            "[resourceId('Microsoft.Network/networkInterfaces',concat(variables('NICPrefix1'), 'external'))]",
+            "[resourceId('Microsoft.Network/networkInterfaces',concat(variables('NICPrefix1'), 'internal'))]",
+            "[resourceId('Microsoft.Storage/storageAccounts',concat(variables('storageName')))]"
+          ],
+        "properties": {
+          "hardwareProfile": {
+            "vmSize": "[variables('vmSize')]"
+          },
+          "osProfile": {
+            "computerName": "[concat(variables('vmName'), '1')]",
+            "adminUsername": "[parameters('adminUsername')]",
+            "adminPassword": "[parameters('adminPassword')]"
+          },
+          "storageProfile": {
+            "imageReference": {
+              "publisher": "[variables('windowsImagePublisher')]",
+              "offer": "[variables('windowsImageOffer')]",
+              "sku": "[parameters('windowsImageSKU')]",
+              "version": "[variables('windowsImageVersion')]"
+            },
+            "osDisk": {
+              "name": "[concat(variables('vmName'), '1osdisk')]",
+              "caching": "ReadWrite",
+              "createOption": "FromImage"
+            }
+        },        
+          "networkProfile": {
+            "networkInterfaces": [
+              {
+                "properties": {
+                  "primary": true
+                },
+                "id": "[resourceId('Microsoft.Network/networkInterfaces',concat(variables('NICPrefix1'), 'external'))]"
+              },
+              {
+                "properties": {
+                  "primary": false
+                },
+                "id": "[resourceId('Microsoft.Network/networkInterfaces',concat(variables('NICPrefix1'), 'internal'))]"
+              }
+            ]
+          }
+        }       
+      },
+
+    {
+        "type": "Microsoft.Compute/virtualMachines",
+        "name": "[concat(variables('vmName'), '2')]",
+        "location": "[resourceGroup().location]",
+        "dependsOn": [
+            "[resourceId('Microsoft.Network/networkInterfaces',concat(variables('NICPrefix2'), 'external'))]",
+            "[resourceId('Microsoft.Network/networkInterfaces',concat(variables('NICPrefix2'), 'internal'))]",
+            "[resourceId('Microsoft.Storage/storageAccounts',concat(variables('storageName')))]"
+          ],
+        "properties": {
+          "hardwareProfile": {
+            "vmSize": "[variables('vmSize')]"
+          },
+          "osProfile": {
+            "computerName": "[concat(variables('vmName'), '2')]",
+            "adminUsername": "[parameters('adminUsername')]",
+            "adminPassword": "[parameters('adminPassword')]"
+          },
+          "storageProfile": {
+            "imageReference": {
+              "publisher": "[variables('windowsImagePublisher')]",
+              "offer": "[variables('windowsImageOffer')]",
+              "sku": "[parameters('windowsImageSKU')]",
+              "version": "[variables('windowsImageVersion')]"
+            },
+            "osDisk": {
+              "name": "[concat(variables('vmName'), '2osdisk')]",
+              "caching": "ReadWrite",
+              "createOption": "FromImage"
+            }
+        },         
+          "networkProfile": {
+            "networkInterfaces": [
+              {
+                "properties": {
+                  "primary": true
+                },
+                "id": "[resourceId('Microsoft.Network/networkInterfaces',concat(variables('NICPrefix2'), 'external'))]"
+              },
+              {
+                "properties": {
+                  "primary": false
+                },
+                "id": "[resourceId('Microsoft.Network/networkInterfaces',concat(variables('NICPrefix2'), 'internal'))]"
+              }
+            ]
+          }
+        }       
+      },
+
+      {
+        "type": "Microsoft.Compute/virtualMachines/extensions",
+        "name": "[concat(variables('vmName'), '1','/CustomScriptExtension')]",
+        "location": "[resourceGroup().location]",
+        "properties": {
+          "publisher": "Microsoft.Compute",
+          "type": "CustomScriptExtension",
+          "typeHandlerVersion": "1.8",
+          "autoUpgradeMinorVersion": true,
+          "settings": {
+            "fileUris": [
+                "[variables('scriptFile')]"
+              ],
+              "commandToExecute": "[concat('powershell -ExecutionPolicy Unrestricted -file ',variables('scriptFileName'), ' ', variables('WindowsFeatureName'))]"
+            }
+          },
+        
+        "dependsOn": [
+            "[concat(variables('vmName'), '1')]"
+          ]
+      },
+    
+      {
+        "type": "Microsoft.Compute/virtualMachines/extensions",
+        "name": "[concat(variables('vmName'), '2','/CustomScriptExtension')]",
+        "location": "[resourceGroup().location]",
+        "properties": {
+          "publisher": "Microsoft.Compute",
+          "type": "CustomScriptExtension",
+          "typeHandlerVersion": "1.8",
+          "autoUpgradeMinorVersion": true,
+          "settings": {
+            "fileUris": [
+                "[variables('scriptFile')]"
+              ],
+              "commandToExecute": "[concat('powershell -ExecutionPolicy Unrestricted -file ',variables('scriptFileName'), ' ', variables('WindowsFeatureName'))]"
+            }
+          },
+          "dependsOn": [
+            "[concat(variables('vmName'), '2')]"
+          ]
+      
+        }
+        
+
+
+
+
+    ],
+  "outputs": { }
+}
