@@ -16,78 +16,44 @@
         "description": "The password for the Administrator account of the new VMs. Default value is subscription id"
       },
       "defaultValue": "[concat('Subscription#',subscription().subscriptionId)]"
-    },
-    "windowsImageSKU": {
-      "type": "string",
-      "defaultValue": "2016-Datacenter",
-      "allowedValues": [
-        "2012-R2-Datacenter",
-        "2016-Datacenter-Server-Core",
-        "2016-Datacenter"
-      ],
-      "metadata": {
-        "description": "The Windows version for the VM. This will pick a fully patched image of this given Windows version. Allowed values: 2008-R2-SP1, 2012-Datacenter, 2012-R2-Datacenter, 2016-Datacenter."
-      }
-    }
+    }    
   },
+
   "variables": {
-   
+    "WindowsImageSKU": "2016-Datacenter",
     "storageAccountType": "Standard_LRS",
     "storageName": "[concat('sa', uniquestring(resourceGroup().id))]",
-  
     "vmName": "[tolower(concat('rras', resourceGroup().name))]",
-    "VMSize": "Standard_DS2_v2",
-    
-       
-    
+    "VMSize": "Standard_DS2_v2",    
     "windowsImagePublisher": "MicrosoftWindowsServer",
     "windowsImageOffer": "WindowsServer",
-    "windowsImageVersion": "latest",
-    "dataDiskSize": 2,
-    "assetLocation": "https://raw.githubusercontent.com/kevinsul/AzureStack-ARMTemplates/master/201-vm-windows-comprehensive-with-managed-disks",
-    
+    "windowsImageVersion": "latest",   
     "VNet1Range": "10.1.0.0/16",
     "VNet1GWSubnetRange": "10.1.254.0/24",
     "VNet1InternalSubnetRange": "10.1.1.0/24",
-
     "VNet2Range": "10.2.0.0/16",
     "VNet2GWSubnetRange": "10.2.254.0/24",
     "VNet2InternalSubnetRange": "10.2.1.0/24",
-
     "GWSubnetName": "GWSubnet1",
-    "InternalSubnetName": "InternalSubnet1",
-           
+    "InternalSubnetName": "InternalSubnet1",           
     "VNet1Name": "[tolower(concat('vnet1',resourceGroup().name))]",
     "VNet2Name": "[tolower(concat('vnet2',resourceGroup().name))]",
-
-
+    "RouteTable1Name": "[tolower(concat('RoutetoVNET2',resourceGroup().name))]",
+    "RouteTable2Name": "[tolower(concat('RoutetoVNET1',resourceGroup().name))]",
     "vnetID1": "[resourceId('Microsoft.Network/virtualNetworks', variables('VNet1Name'))]",
-    "vnetID2": "[resourceId('Microsoft.Network/virtualNetworks', variables('VNet2Name'))]",
-
-    
+    "vnetID2": "[resourceId('Microsoft.Network/virtualNetworks', variables('VNet2Name'))]",    
     "GWSubnetRef1": "[concat(variables('vnetID1'),'/subnets/',variables('GWSubnetName'))]",
     "InternalSubnetRef1": "[concat(variables('vnetID1'),'/subnets/',variables('InternalSubnetName'))]",
-
     "GWSubnetRef2": "[concat(variables('vnetID2'),'/subnets/',variables('GWSubnetName'))]",
-    "InternalSubnetRef2": "[concat(variables('vnetID2'),'/subnets/',variables('InternalSubnetName'))]",    
-
-    "PIPAddressName1": "[tolower(concat('rraspip1',resourceGroup().name))]",
-    "PIPAddressName2": "[tolower(concat('rraspip2',resourceGroup().name))]",
-    
-    
-    
+    "InternalSubnetRef2": "[concat(variables('vnetID2'),'/subnets/',variables('InternalSubnetName'))]",
+    "PIPAddressName1": "[tolower(concat('rraspip1',resourceGroup().name))]",    
+    "PIPAddressName2": "[tolower(concat('rraspip2',resourceGroup().name))]",    
     "extnsgName": "[tolower(concat('extnsg',resourceGroup().name))]",
-    "extnsgID": "[resourceId('Microsoft.Network/networkSecurityGroups',variables('extnsgName'))]",
-    
+    "extnsgID": "[resourceId('Microsoft.Network/networkSecurityGroups',variables('extnsgName'))]",    
     "NICPrefix1": "[tolower(concat('rrasnic1', resourceGroup().name))]",
     "NICPrefix2": "[tolower(concat('rrasnic2', resourceGroup().name))]",
-
-    "vmContainerName": "vhds",
-    "WindowsFeatureName": "Web-Server",
-    "ModulesURL": "[concat(variables('assetLocation'),'/windowsFeature.zip')]",
-    "ConfigurationFunction": "windowsFeature.ps1\\EnalbeWindowsFeature",
-    "scriptFileName": "install-rras.ps1",
-    "scriptFile": "[concat(variables('assetLocation'),'/',variables('scriptFileName'))]"
+    "scriptfilepath": "https://raw.githubusercontent.com/kevinsul/azurestack-rras/master/install-rras.ps1",
+    "scriptfilename": "install-rras.ps1"    
   },
 
   "resources": [
@@ -141,6 +107,42 @@
     },
 
     {
+      "type": "Microsoft.Network/routeTables",
+      "name": "[variables('RouteTable1Name')]",
+      "location": "[resourceGroup().location]",
+      "properties": {
+        "routes": [
+          {
+            "name": "[variables('RouteTable1Name')]",
+            "properties": {
+              "addressPrefix": "[variables('VNet2Range')]",
+              "nextHopType": "VirtualAppliance",
+              "nextHopIpAddress": "10.1.1.4"
+            }
+          }
+        ]
+      }
+    },
+
+    {
+      "type": "Microsoft.Network/routeTables",
+      "name": "[variables('RouteTable2Name')]",
+      "location": "[resourceGroup().location]",
+      "properties": {
+        "routes": [
+          {
+            "name": "[variables('RouteTable2Name')]",
+            "properties": {
+              "addressPrefix": "[variables('VNet1Range')]",
+              "nextHopType": "VirtualAppliance",
+              "nextHopIpAddress": "10.2.1.4"
+            }
+          }
+        ]
+      }
+    },
+
+    {
         "type": "Microsoft.Storage/storageAccounts",
         "name": "[variables('storageName')]",
         "location": "[resourceGroup().location]",
@@ -149,7 +151,6 @@
         },
         "kind": "Storage"    
       },
-
 
     {
       "type": "Microsoft.Network/virtualNetworks",
@@ -168,19 +169,23 @@
               "addressPrefix": "[variables('VNet1GWSubnetRange')]",
               "networkSecurityGroup": {
                 "id": "[variables('extnsgID')]"
-              }
+              }              
             }
           },
           {
             "name": "[variables('InternalSubnetName')]",
             "properties": {
-              "addressPrefix": "[variables('VNet1InternalSubnetRange')]"
+              "addressPrefix": "[variables('VNet1InternalSubnetRange')]",
+              "routeTable": {
+                "id": "[resourceId('Microsoft.Network/routeTables', variables('RouteTable1Name'))]"
+              }
               }
             }
         ]
       },
       "dependsOn": [
-        "[variables('extnsgID')]"
+        "[variables('extnsgID')]",
+        "[concat('Microsoft.Network/routeTables/', variables('RouteTable1Name'))]"
       ]
     },
     
@@ -201,23 +206,26 @@
                 "addressPrefix": "[variables('VNet2GWSubnetRange')]",
                 "networkSecurityGroup": {
                   "id": "[variables('extnsgID')]"
-                }
+                }                
               }
             },
             {
               "name": "[variables('InternalSubnetName')]",
               "properties": {
-                "addressPrefix": "[variables('VNet2InternalSubnetRange')]"
+                "addressPrefix": "[variables('VNet2InternalSubnetRange')]",
+                "routeTable": {
+                  "id": "[resourceId('Microsoft.Network/routeTables', variables('RouteTable2Name'))]"
+                }
                 }
               }
           ]
         },
         "dependsOn": [
-          "[variables('extnsgID')]"
+          "[variables('extnsgID')]",
+          "[concat('Microsoft.Network/routeTables/', variables('RouteTable2Name'))]"
         ]
       },
-
-
+     
     {
       "type": "Microsoft.Network/publicIPAddresses",
       "name": "[variables('PIPAddressName1')]",
@@ -242,8 +250,6 @@
         ]
       },
 
-
-
     {
       "type": "Microsoft.Network/networkInterfaces",
       "name": "[concat(variables('NICPrefix1'), 'external')]",
@@ -261,9 +267,7 @@
               },
               "subnet": {
                 "id": "[variables('GWSubnetRef1')]"
-              }
-            
-           
+              }          
             }
           }
         ]
@@ -273,6 +277,7 @@
         "[resourceId('Microsoft.Network/publicIPAddresses',variables('PIPAddressName1'))]"
       ]
     },
+
     {
       "type": "Microsoft.Network/networkInterfaces",
       "name": "[concat(variables('NICPrefix1'), 'internal')]",
@@ -324,6 +329,7 @@
           "[resourceId('Microsoft.Network/publicIPAddresses',variables('PIPAddressName2'))]"
         ]
       },
+
       {
         "type": "Microsoft.Network/networkInterfaces",
         "name": "[concat(variables('NICPrefix2'), 'internal')]",
@@ -348,8 +354,6 @@
         ]
       },
 
-
-
       {
         "type": "Microsoft.Compute/virtualMachines",
         "name": "[concat(variables('vmName'), '1')]",
@@ -372,7 +376,7 @@
             "imageReference": {
               "publisher": "[variables('windowsImagePublisher')]",
               "offer": "[variables('windowsImageOffer')]",
-              "sku": "[parameters('windowsImageSKU')]",
+              "sku": "[variables('windowsImageSKU')]",
               "version": "[variables('windowsImageVersion')]"
             },
             "osDisk": {
@@ -422,7 +426,7 @@
             "imageReference": {
               "publisher": "[variables('windowsImagePublisher')]",
               "offer": "[variables('windowsImageOffer')]",
-              "sku": "[parameters('windowsImageSKU')]",
+              "sku": "[variables('windowsImageSKU')]",
               "version": "[variables('windowsImageVersion')]"
             },
             "osDisk": {
@@ -461,9 +465,9 @@
           "autoUpgradeMinorVersion": true,
           "settings": {
             "fileUris": [
-                "[variables('scriptFile')]"
+                "[variables('scriptFilepath')]"
               ],
-              "commandToExecute": "[concat('powershell -ExecutionPolicy Unrestricted -file ',variables('scriptFileName'), ' ', variables('WindowsFeatureName'))]"
+              "commandToExecute": "[concat('powershell -ExecutionPolicy Unrestricted -file ',variables('scriptFilename'), ' ', '-TargetRRASIP ',  reference(variables('PIPAddressName2')).ipAddress, ' -TargetIPRange ', variables('VNet2Range'))]"
             }
           },
         
@@ -483,21 +487,16 @@
           "autoUpgradeMinorVersion": true,
           "settings": {
             "fileUris": [
-                "[variables('scriptFile')]"
+                "[variables('scriptFilepath')]"
               ],
-              "commandToExecute": "[concat('powershell -ExecutionPolicy Unrestricted -file ',variables('scriptFileName'), ' ', variables('WindowsFeatureName'))]"
+              "commandToExecute": "[concat('powershell -ExecutionPolicy Unrestricted -file ',variables('scriptFilename'), ' ', '-TargetRRASIP ',  reference(variables('PIPAddressName1')).ipAddress, ' -TargetIPRange ', variables('VNet1Range'))]"
             }
           },
           "dependsOn": [
             "[concat(variables('vmName'), '2')]"
-          ]
-      
+          ]      
         }
-        
-
-
-
-
     ],
+
   "outputs": { }
 }
