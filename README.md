@@ -13,6 +13,6 @@ Requirements:
     -  Windows Server 2016 Datacenter (latest build recommended)
     -  Custom Script Extension
     
-The only parameters this template requires is for naming the Administrator account for the RRAS servers and password for the Administrator accounts.  If you wish to provide custome values for the VNET IP ranges, subnets, names, etc., the variables (and in some cases explicit values within the various sections of the template) within the template can be modified accordingly.  Be careful to keep these values within legal ranges as deployment may fail.
+The only parameters this template requires is for naming the Administrator account for the RRAS servers and password for the Administrator accounts.  If you wish to provide custom values for the VNET IP ranges, subnets, names, etc., the variables (and in some cases explicit values within the various sections of the template) within the template can be modified accordingly.  Be careful to keep these values within legal ranges as deployment may fail.
 
 Also note the custom powershell script that is executed via the customer script extension on each RRAS VM.  This script installs RRAS and all required dependent services and features, and configures the IKEv2 IPSec tunnel between the two RRAS servers with a shared key.
